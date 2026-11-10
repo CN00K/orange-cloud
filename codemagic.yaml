@@ -1,0 +1,75 @@
+# Codemagic self-build for Orange Cloud (unsigned IPA, all Pro features unlocked).
+#
+# How to use:
+#   1. Sign up at https://codemagic.io with GitHub, add the fork repo
+#      CN00K/orange-cloud (this file is read from the default branch).
+#   2. In the app's settings -> Environment variables, add:
+#        BUNDLE_PREFIX      = me.zzuu
+#        OAUTH_REDIRECT_URI = https://orange.zzuu.me/oauth/callback
+#        OAUTH_CLIENT_ID    = <your Cloudflare OAuth client ID>  (mark Secure)
+#      (The three values are already set as GitHub repo Variables/Secrets
+#      for the Actions workflow; copy the same values here.)
+#   3. Open the app in Codemagic, pick workflow "iOS self-build (unsigned)"
+#      and press "Start new build".
+#   4. Download OrangeCloud-unsigned.ipa from the build's Artifacts and
+#      sideload with AltStore (free Apple ID, 7-day cert).
+#
+# Free tier: 500 macOS M2 minutes/month, 1 build at a time. One build of
+# this app takes ~7 minutes. No code signing: the IPA is unsigned.
+#
+# Why Codemagic: GitHub's macOS runners kept failing to allocate
+# ("job was not acquired by Runner") while this repo's fix was waiting
+# to be validated. Codemagic's Mac minis are a separate pool.
+# Xcode is pinned to 26.6, the same version the Actions builds used.
+
+workflows:
+  ios-selfbuild-unsigned:
+    name: iOS self-build (unsigned, OPENSOURCE_UNLOCKED)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: 26.6
+    scripts:
+      - name: Check Xcode version
+        script: |
+          xcodebuild -version
+      - name: Apply self-build identity (bundle IDs, app group, OAuth)
+        script: |
+          set -euo pipefail
+          PBX='apps/ios/Orange Cloud/Orange Cloud.xcodeproj/project.pbxproj'
+          : "${BUNDLE_PREFIX:?BUNDLE_PREFIX variable is required}"
+          : "${OAUTH_CLIENT_ID:?OAUTH_CLIENT_ID secret is required}"
+          : "${OAUTH_REDIRECT_URI:?OAUTH_REDIRECT_URI variable is required}"
+          # Bundle IDs: jiamin.chen.orange-cloud.* -> <prefix>.orange-cloud.*
+          sed -i '' "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX" || sed -i "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX"
+          # App Group in every .entitlements file
+          find 'apps/ios' -name '*.entitlements' -print0 | while IFS= read -r -d '' f; do
+            sed -i '' "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f" || sed -i "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f"
+          done
+          # OAuth client + redirect URI (official values are not for third-party builds)
+          CFG='apps/ios/Orange Cloud/Orange Cloud/Core/Auth/OAuthConfig.swift'
+          sed -i '' "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG" || sed -i "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG"
+          sed -i '' "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG" || sed -i "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG"
+          grep -n "clientID\|redirectURI" "$CFG"
+      - name: Build & archive (unsigned, OPENSOURCE_UNLOCKED)
+        script: |
+          set -euo pipefail
+          xcodebuild -project 'apps/ios/Orange Cloud/Orange Cloud.xcodeproj' \
+            -scheme 'Orange Cloud' \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/build/OrangeCloud.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) OPENSOURCE_UNLOCKED' \
+            archive
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          APP=$(find "$CM_BUILD_DIR/build/OrangeCloud.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)
+          echo "App: $APP"
+          mkdir -p "$CM_BUILD_DIR/build/Payload"
+          cp -R "$APP" "$CM_BUILD_DIR/build/Payload/"
+          cd "$CM_BUILD_DIR/build" && zip -r OrangeCloud-unsigned.ipa Payload
+          ls -lh OrangeCloud-unsigned.ipa
+    artifacts:
+      - build/OrangeCloud-unsigned.ipa
