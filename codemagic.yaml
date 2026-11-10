@@ -45,16 +45,23 @@ workflows:
           : "${BUNDLE_PREFIX:?BUNDLE_PREFIX variable is required}"
           : "${OAUTH_CLIENT_ID:?OAUTH_CLIENT_ID secret is required}"
           : "${OAUTH_REDIRECT_URI:?OAUTH_REDIRECT_URI variable is required}"
+          # Codemagic's variable input is a multiline field, so values can
+          # carry a trailing newline; a newline inside a sed replacement
+          # breaks BSD sed ("unescaped newline inside substitute pattern").
+          # None of these three values may legitimately contain whitespace.
+          BUNDLE_PREFIX=$(printf '%s' "$BUNDLE_PREFIX" | tr -d '[:space:]')
+          OAUTH_CLIENT_ID=$(printf '%s' "$OAUTH_CLIENT_ID" | tr -d '[:space:]')
+          OAUTH_REDIRECT_URI=$(printf '%s' "$OAUTH_REDIRECT_URI" | tr -d '[:space:]')
           # Bundle IDs: jiamin.chen.orange-cloud.* -> <prefix>.orange-cloud.*
-          sed -i '' "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX" || sed -i "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX"
+          sed -i '' "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX"
           # App Group in every .entitlements file
           find 'apps/ios' -name '*.entitlements' -print0 | while IFS= read -r -d '' f; do
-            sed -i '' "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f" || sed -i "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f"
+            sed -i '' "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f"
           done
           # OAuth client + redirect URI (official values are not for third-party builds)
           CFG='apps/ios/Orange Cloud/Orange Cloud/Core/Auth/OAuthConfig.swift'
-          sed -i '' "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG" || sed -i "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG"
-          sed -i '' "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG" || sed -i "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG"
+          sed -i '' "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG"
+          sed -i '' "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG"
           grep -n "clientID\|redirectURI" "$CFG"
       - name: Build & archive (unsigned, OPENSOURCE_UNLOCKED)
         script: |
