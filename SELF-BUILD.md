@@ -27,7 +27,13 @@
 官方 Client ID 与 `o-c.do` 中转不向第三方构建开放，必须自建：
 1. Cloudflare Dashboard → 创建 OAuth Client（OAuth PKCE 公开客户端，
    无需 client secret）。
-2. 部署回调中转：`apps/web/` 是 Next.js on Cloudflare Workers，
+2. 部署回调中转：
+   - **如果账号没开 R2**：部署时会报 `No R2 binding "NEXT_INC_CACHE_R2_BUCKET"`。不用去开 R2——把
+     `apps/web/open-next.config.ts` 里的 `r2IncrementalCache` 换成
+     `staticAssetsIncrementalCache`（从 `@opennextjs/cloudflare/overrides/incremental-cache/static-assets-incremental-cache`
+     引入），ISR 缓存改走 Workers 静态资源里的预渲染产物（只读，不影响 `/oauth/callback`
+     这个动态路由）。本仓库已按这个改法部署验证通过。
+`apps/web/` 是 Next.js on Cloudflare Workers，
    用本仓库的 `apps/web/wrangler.selfbuild.jsonc`（已去掉官方的 D1 /
    R2 / 邮件 / IAP / 榜单 cron，只剩回调本身）覆盖
    `wrangler.jsonc`，把 `name` 和 `routes` 改成自己的域名，

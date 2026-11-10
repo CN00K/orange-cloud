@@ -7,6 +7,11 @@
  * /oauth/callback only 302-redirects the authorization code + state to the
  * iOS app's custom scheme (orangecloud://oauth/callback). It stores nothing.
  *
+ * NOTE: this config has no R2 bucket. If the account has no R2 enabled,
+ * the deploy fails with 'No R2 binding NEXT_INC_CACHE_R2_BUCKET'. Fix by
+ * switching apps/web/open-next.config.ts from r2IncrementalCache to
+ * staticAssetsIncrementalCache (see SELF-BUILD.md).
+ *
  * How to use:
  *   1. Copy this file over apps/web/wrangler.jsonc
  *   2. Change "name" and the "routes" pattern to your own domain
@@ -29,6 +34,14 @@
 		"directory": ".open-next/assets",
 		"html_handling": "none"
 	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "orange-cloud-relay"
+		}
+	],
 	"routes": [
 		{
 			"pattern": "orange.example.com",
