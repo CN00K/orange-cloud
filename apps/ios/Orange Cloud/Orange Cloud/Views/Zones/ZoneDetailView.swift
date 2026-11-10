@@ -367,6 +367,177 @@ struct ZoneDetailView: View {
         }
     }
 
+    /// “管理”整卡：DNS 记录、规则、IP 访问规则、安全洞察、健康检查、负载均衡。
+    /// 单独抽出来，body 里剩下的这张大卡仍让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:563 的 Zone ID footer 曾报此错）。
+    @ViewBuilder
+    private var managementSection: some View {
+        sectionCard(String(localized: "管理")) {
+            PermissionGatedNavigationLink(
+                label: String(localized: "DNS 记录"),
+                systemImage: "network",
+                requiredScope: "dns.read",
+                showsChevron: true
+            ) {
+                DNSListView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+            .listRowStyleValue(String(localized: "\(dnsRecordDisplayCount) 条"))
+
+            // zone 级 DNS 策略（DNSSEC / CNAME 展平 / NS 类型），与逐条记录分开
+            PermissionGatedValueLink(
+                label: String(localized: "DNS 设置"),
+                systemImage: "gearshape.2",
+                requiredScope: "zone-dns-settings.read",
+                tint: .indigo,
+                showsChevron: true,
+                value: ZoneRoute.dnsSettings(zoneId: zone.id, zoneName: zone.name)
+            )
+
+            ProGatedNavigationLink(
+                label: String(localized: "WAF 防火墙"),
+                systemImage: "shield",
+                requiredScope: "zone-waf.read",
+                feature: .waf,
+                tint: .purple,
+                showsChevron: true
+            ) {
+                WAFRuleListView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+
+            ProGatedNavigationLink(
+                label: "Rate Limiting",
+                systemImage: "gauge.with.dots.needle.bottom.50percent",
+                requiredScope: "zone-waf.read",
+                feature: .rateLimit,
+                tint: .pink,
+                showsChevron: true
+            ) {
+                RateLimitRulesView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+
+            // 规则族（Transform / 缓存 / Snippets / 重定向 / 源站 / 配置 / 压缩 /
+            // 自定义错误 / Page Rules / URL 规范化）统一收进「规则」二级入口
+            PermissionGatedValueLink(
+                label: String(localized: "规则"),
+                systemImage: "list.bullet.rectangle",
+                requiredScope: "zone.read",
+                tint: .orange,
+                showsChevron: true,
+                value: ZoneRoute.rulesHub(zoneId: zone.id, zoneName: zone.name)
+            )
+
+            ProGatedNavigationLink(
+                label: "Email Routing",
+                systemImage: "envelope",
+                requiredScope: "email-routing-rule.read",
+                feature: .emailRouting,
+                tint: .pink,
+                showsChevron: true
+            ) {
+                EmailRoutingView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+
+            PermissionGatedNavigationLink(
+                label: "SSL/TLS",
+                systemImage: "lock.shield",
+                requiredScope: "zone-settings.read",
+                tint: .green,
+                showsChevron: true
+            ) {
+                ZoneSSLSettingsView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+
+            PermissionGatedNavigationLink(
+                label: String(localized: "性能与缓存"),
+                systemImage: "speedometer",
+                requiredScope: "zone-settings.read",
+                tint: .teal,
+                showsChevron: true
+            ) {
+                ZonePerformanceView(zoneId: zone.id, session: session)
+            }
+
+            PermissionGatedNavigationLink(
+                label: String(localized: "SSL 证书"),
+                systemImage: "checkmark.seal",
+                requiredScope: "ssl-and-certificates.read",
+                tint: .green,
+                showsChevron: true
+            ) {
+                ZoneSSLCertsView(zoneId: zone.id, session: session)
+            }
+
+            PermissionGatedNavigationLink(
+                label: String(localized: "IP 访问规则"),
+                systemImage: "hand.raised",
+                requiredScope: "firewall-services.read",
+                tint: .red,
+                showsChevron: true
+            ) {
+                ZoneAccessRulesView(zoneId: zone.id, session: session)
+            }
+
+            // 安全洞察（Security Center Insights）：全套餐免费，读写同 zone-settings.*；
+            // 目的页是叶子（处理链接外跳浏览器，不再 push），eager 门控行即可
+            PermissionGatedNavigationLink(
+                label: String(localized: "安全洞察"),
+                systemImage: "exclamationmark.shield",
+                requiredScope: "zone-settings.read",
+                tint: .red,
+                showsChevron: true
+            ) {
+                SecurityInsightsView(zoneId: zone.id, zoneName: zone.name, session: session)
+            }
+
+            // 与负载均衡的监控器不同源：这里监控单个源站，单源站也能用
+            PermissionGatedValueLink(
+                label: String(localized: "健康检查"),
+                systemImage: "waveform.path.ecg",
+                requiredScope: "healthcheck.read",
+                tint: .green,
+                showsChevron: true,
+                value: ZoneRoute.healthChecks(zoneId: zone.id, zoneName: zone.name)
+            )
+
+            ProGatedValueLink(
+                label: String(localized: "负载均衡"),
+                systemImage: "arrow.left.arrow.right",
+                requiredScope: "load-balancers.read",
+                feature: .loadBalancing,
+                tint: .pink,
+                showsChevron: true,
+                value: ZoneRoute.loadBalancers(zoneId: zone.id, zoneName: zone.name)
+            )
+        }
+    }
+
+    /// Name Servers 卡 + Zone ID footer。
+    /// 和“管理”卡一起抽出来，避免 body 里那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:563 的 Zone ID footer 曾报此错）。
+    @ViewBuilder
+    private var zoneFooterSection: some View {
+        if !zone.nameServers.isEmpty {
+            sectionCard("Name Servers") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(zone.nameServers, id: \.self) { server in
+                        Text(server)
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+
+        // Zone ID footer
+        Text("Zone ID · \(zone.id)")
+            .font(.caption2.monospaced())
+            .foregroundStyle(.tertiary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, 8)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -400,143 +571,7 @@ struct ZoneDetailView: View {
                 // 本卡内 eager 门控行的保留判据：目的页是叶子（内部只开 sheet、不再 push）。
                 // 「规则」「负载均衡」的目的页还要继续 push，已改值式（ZoneRoute + 栈根 navdest）；
                 // 其余若日后加内层 push，必须同步改值式。
-                sectionCard(String(localized: "管理")) {
-                    PermissionGatedNavigationLink(
-                        label: String(localized: "DNS 记录"),
-                        systemImage: "network",
-                        requiredScope: "dns.read",
-                        showsChevron: true
-                    ) {
-                        DNSListView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-                    .listRowStyleValue(String(localized: "\(dnsRecordDisplayCount) 条"))
-
-                    // zone 级 DNS 策略（DNSSEC / CNAME 展平 / NS 类型），与逐条记录分开
-                    PermissionGatedValueLink(
-                        label: String(localized: "DNS 设置"),
-                        systemImage: "gearshape.2",
-                        requiredScope: "zone-dns-settings.read",
-                        tint: .indigo,
-                        showsChevron: true,
-                        value: ZoneRoute.dnsSettings(zoneId: zone.id, zoneName: zone.name)
-                    )
-
-                    ProGatedNavigationLink(
-                        label: String(localized: "WAF 防火墙"),
-                        systemImage: "shield",
-                        requiredScope: "zone-waf.read",
-                        feature: .waf,
-                        tint: .purple,
-                        showsChevron: true
-                    ) {
-                        WAFRuleListView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-
-                    ProGatedNavigationLink(
-                        label: "Rate Limiting",
-                        systemImage: "gauge.with.dots.needle.bottom.50percent",
-                        requiredScope: "zone-waf.read",
-                        feature: .rateLimit,
-                        tint: .pink,
-                        showsChevron: true
-                    ) {
-                        RateLimitRulesView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-
-                    // 规则族（Transform / 缓存 / Snippets / 重定向 / 源站 / 配置 / 压缩 /
-                    // 自定义错误 / Page Rules / URL 规范化）统一收进「规则」二级入口
-                    PermissionGatedValueLink(
-                        label: String(localized: "规则"),
-                        systemImage: "list.bullet.rectangle",
-                        requiredScope: "zone.read",
-                        tint: .orange,
-                        showsChevron: true,
-                        value: ZoneRoute.rulesHub(zoneId: zone.id, zoneName: zone.name)
-                    )
-
-                    ProGatedNavigationLink(
-                        label: "Email Routing",
-                        systemImage: "envelope",
-                        requiredScope: "email-routing-rule.read",
-                        feature: .emailRouting,
-                        tint: .pink,
-                        showsChevron: true
-                    ) {
-                        EmailRoutingView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-
-                    PermissionGatedNavigationLink(
-                        label: "SSL/TLS",
-                        systemImage: "lock.shield",
-                        requiredScope: "zone-settings.read",
-                        tint: .green,
-                        showsChevron: true
-                    ) {
-                        ZoneSSLSettingsView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-
-                    PermissionGatedNavigationLink(
-                        label: String(localized: "性能与缓存"),
-                        systemImage: "speedometer",
-                        requiredScope: "zone-settings.read",
-                        tint: .teal,
-                        showsChevron: true
-                    ) {
-                        ZonePerformanceView(zoneId: zone.id, session: session)
-                    }
-
-                    PermissionGatedNavigationLink(
-                        label: String(localized: "SSL 证书"),
-                        systemImage: "checkmark.seal",
-                        requiredScope: "ssl-and-certificates.read",
-                        tint: .green,
-                        showsChevron: true
-                    ) {
-                        ZoneSSLCertsView(zoneId: zone.id, session: session)
-                    }
-
-                    PermissionGatedNavigationLink(
-                        label: String(localized: "IP 访问规则"),
-                        systemImage: "hand.raised",
-                        requiredScope: "firewall-services.read",
-                        tint: .red,
-                        showsChevron: true
-                    ) {
-                        ZoneAccessRulesView(zoneId: zone.id, session: session)
-                    }
-
-                    // 安全洞察（Security Center Insights）：全套餐免费，读写同 zone-settings.*；
-                    // 目的页是叶子（处理链接外跳浏览器，不再 push），eager 门控行即可
-                    PermissionGatedNavigationLink(
-                        label: String(localized: "安全洞察"),
-                        systemImage: "exclamationmark.shield",
-                        requiredScope: "zone-settings.read",
-                        tint: .red,
-                        showsChevron: true
-                    ) {
-                        SecurityInsightsView(zoneId: zone.id, zoneName: zone.name, session: session)
-                    }
-
-                    // 与负载均衡的监控器不同源：这里监控单个源站，单源站也能用
-                    PermissionGatedValueLink(
-                        label: String(localized: "健康检查"),
-                        systemImage: "waveform.path.ecg",
-                        requiredScope: "healthcheck.read",
-                        tint: .green,
-                        showsChevron: true,
-                        value: ZoneRoute.healthChecks(zoneId: zone.id, zoneName: zone.name)
-                    )
-
-                    ProGatedValueLink(
-                        label: String(localized: "负载均衡"),
-                        systemImage: "arrow.left.arrow.right",
-                        requiredScope: "load-balancers.read",
-                        feature: .loadBalancing,
-                        tint: .pink,
-                        showsChevron: true,
-                        value: ZoneRoute.loadBalancers(zoneId: zone.id, zoneName: zone.name)
-                    )
-                }
+                managementSection
 
                 // 整卡仅在读到任一组配置时出现：
                 // 机器人管控全套餐可用但需 bot-management.read；
@@ -546,26 +581,7 @@ struct ZoneDetailView: View {
 
                 actionsSection
 
-                if !zone.nameServers.isEmpty {
-                    sectionCard("Name Servers") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(zone.nameServers, id: \.self) { server in
-                                Text(server)
-                                    .font(.callout.monospaced())
-                                    .textSelection(.enabled)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-
-                // Zone ID footer
-                Text("Zone ID · \(zone.id)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.bottom, 8)
+                zoneFooterSection
             }
             .padding()
         }
