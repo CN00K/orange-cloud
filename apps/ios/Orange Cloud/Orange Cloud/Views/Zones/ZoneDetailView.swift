@@ -249,6 +249,124 @@ struct ZoneDetailView: View {
         }
     }
 
+    /// “操作”整卡：Under Attack、开发模式、暂停、清理缓存等。
+    /// 单独抽出来，避免 body 里那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:429 的 sectionCard“操作”曾报此错）。
+    @ViewBuilder
+    private var actionsSection: some View {
+        sectionCard(String(localized: "操作")) {
+            settingToggleRow(
+                title: String(localized: "Under Attack 模式"),
+                subtitle: String(localized: "对所有访客启用质询页"),
+                icon: "shield.lefthalf.filled",
+                tint: .red,
+                isOn: actionsViewModel.underAttack,
+                isBusy: actionsViewModel.isTogglingUnderAttack,
+                canEdit: canEditSettings,
+                isLoaded: actionsViewModel.settingsLoaded,
+                deniedScope: canReadSettings ? "zone-settings.write" : "zone-settings.read",
+                requestToggle: { on in pendingAction = .underAttack(on) }
+            )
+
+            precursorRow
+
+            settingToggleRow(
+                title: String(localized: "开发模式"),
+                subtitle: String(localized: "临时绕过缓存（3 小时后自动关闭）"),
+                icon: "hammer",
+                tint: .blue,
+                isOn: actionsViewModel.devMode,
+                isBusy: actionsViewModel.isTogglingDevMode,
+                canEdit: canEditSettings,
+                isLoaded: actionsViewModel.settingsLoaded,
+                deniedScope: canReadSettings ? "zone-settings.write" : "zone-settings.read",
+                requestToggle: { on in pendingAction = .devMode(on) }
+            )
+
+            // 暂停态一直可读（zone.read 是登录基础权限），故 isLoaded 恒 true：
+            // 无 zone.write 时行内显示当前开/关而非锁，符合「能看不能改」的一致语义。
+            settingToggleRow(
+                title: String(localized: "暂停 Cloudflare"),
+                subtitle: String(localized: "流量绕过 Cloudflare，仅保留 DNS 解析"),
+                icon: "pause.circle",
+                tint: .gray,
+                isOn: actionsViewModel.paused,
+                isBusy: actionsViewModel.isTogglingPause,
+                canEdit: canEditZone,
+                isLoaded: true,
+                deniedScope: "zone.write",
+                requestToggle: { on in pendingAction = .pause(on) }
+            )
+
+            Button {
+                if canPurge {
+                    showPurgeConfirm = true
+                } else {
+                    deniedScopeHint = "cache.purge"
+                    showActionDenied = true
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    TintIcon(systemImage: "trash", color: .ocOrange)
+                    Text("清理全部缓存")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if actionsViewModel.isPurging {
+                        ProgressView()
+                    } else if !canPurge {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .disabled(actionsViewModel.isPurging)
+
+            // 标记过期（invalidate_cache，2026-09-28 GA）：与清除同权限（cache.purge）、同门槛（免费）
+            Button {
+                if canPurge {
+                    showInvalidateConfirm = true
+                } else {
+                    deniedScopeHint = "cache.purge"
+                    showActionDenied = true
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    TintIcon(systemImage: "clock.arrow.circlepath", color: .ocOrange)
+                    Text("标记过期")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if !canPurge {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .disabled(actionsViewModel.isPurging)
+
+            Button {
+                if canPurge {
+                    showPurgeSheet = true
+                } else {
+                    deniedScopeHint = "cache.purge"
+                    showActionDenied = true
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    TintIcon(systemImage: "scissors", color: .ocOrange)
+                    Text("按目标清理缓存")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: canPurge ? "chevron.right" : "lock.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .disabled(actionsViewModel.isPurging)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -426,117 +544,7 @@ struct ZoneDetailView: View {
                 // 与其给用户一排永远打不开的锁，不如不显示。
                 aiContentControlSection
 
-                sectionCard(String(localized: "操作")) {
-                    settingToggleRow(
-                        title: String(localized: "Under Attack 模式"),
-                        subtitle: String(localized: "对所有访客启用质询页"),
-                        icon: "shield.lefthalf.filled",
-                        tint: .red,
-                        isOn: actionsViewModel.underAttack,
-                        isBusy: actionsViewModel.isTogglingUnderAttack,
-                        canEdit: canEditSettings,
-                        isLoaded: actionsViewModel.settingsLoaded,
-                        deniedScope: canReadSettings ? "zone-settings.write" : "zone-settings.read",
-                        requestToggle: { on in pendingAction = .underAttack(on) }
-                    )
-
-                    precursorRow
-
-                    settingToggleRow(
-                        title: String(localized: "开发模式"),
-                        subtitle: String(localized: "临时绕过缓存（3 小时后自动关闭）"),
-                        icon: "hammer",
-                        tint: .blue,
-                        isOn: actionsViewModel.devMode,
-                        isBusy: actionsViewModel.isTogglingDevMode,
-                        canEdit: canEditSettings,
-                        isLoaded: actionsViewModel.settingsLoaded,
-                        deniedScope: canReadSettings ? "zone-settings.write" : "zone-settings.read",
-                        requestToggle: { on in pendingAction = .devMode(on) }
-                    )
-
-                    // 暂停态一直可读（zone.read 是登录基础权限），故 isLoaded 恒 true：
-                    // 无 zone.write 时行内显示当前开/关而非锁，符合「能看不能改」的一致语义。
-                    settingToggleRow(
-                        title: String(localized: "暂停 Cloudflare"),
-                        subtitle: String(localized: "流量绕过 Cloudflare，仅保留 DNS 解析"),
-                        icon: "pause.circle",
-                        tint: .gray,
-                        isOn: actionsViewModel.paused,
-                        isBusy: actionsViewModel.isTogglingPause,
-                        canEdit: canEditZone,
-                        isLoaded: true,
-                        deniedScope: "zone.write",
-                        requestToggle: { on in pendingAction = .pause(on) }
-                    )
-
-                    Button {
-                        if canPurge {
-                            showPurgeConfirm = true
-                        } else {
-                            deniedScopeHint = "cache.purge"
-                            showActionDenied = true
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            TintIcon(systemImage: "trash", color: .ocOrange)
-                            Text("清理全部缓存")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if actionsViewModel.isPurging {
-                                ProgressView()
-                            } else if !canPurge {
-                                Image(systemName: "lock.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                    .disabled(actionsViewModel.isPurging)
-
-                    // 标记过期（invalidate_cache，2026-09-28 GA）：与清除同权限（cache.purge）、同门槛（免费）
-                    Button {
-                        if canPurge {
-                            showInvalidateConfirm = true
-                        } else {
-                            deniedScopeHint = "cache.purge"
-                            showActionDenied = true
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            TintIcon(systemImage: "clock.arrow.circlepath", color: .ocOrange)
-                            Text("标记过期")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if !canPurge {
-                                Image(systemName: "lock.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                    .disabled(actionsViewModel.isPurging)
-
-                    Button {
-                        if canPurge {
-                            showPurgeSheet = true
-                        } else {
-                            deniedScopeHint = "cache.purge"
-                            showActionDenied = true
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            TintIcon(systemImage: "scissors", color: .ocOrange)
-                            Text("按目标清理缓存")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: canPurge ? "chevron.right" : "lock.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .disabled(actionsViewModel.isPurging)
-                }
+                actionsSection
 
                 if !zone.nameServers.isEmpty {
                     sectionCard("Name Servers") {
