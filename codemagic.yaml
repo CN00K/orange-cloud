@@ -29,6 +29,11 @@ workflows:
     max_build_duration: 60
     environment:
       xcode: 26.6
+      groups:
+        # The three build variables (BUNDLE_PREFIX, OAUTH_CLIENT_ID,
+        # OAUTH_REDIRECT_URI) live in the Codemagic variable group "zzuu".
+        # Without this declaration the workflow cannot see them.
+        - zzuu
     scripts:
       - name: Check Xcode version
         script: |
