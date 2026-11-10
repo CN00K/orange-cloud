@@ -1,0 +1,87 @@
+name: Build iOS (self-build, OPENSOURCE_UNLOCKED)
+
+# Self-build for Orange Cloud: builds the iOS app with every Pro feature
+# unlocked (OPENSOURCE_UNLOCKED), no signing — the produced IPA is unsigned
+# and can be installed with AltStore / Sideloadly / ESign, which re-sign it
+# with your own free Apple ID (7-day cert) or a paid developer account.
+#
+# Required repo Variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   BUNDLE_PREFIX      e.g. me.zzuu  (bundle IDs become me.zzuu.orange-cloud, ...)
+#   OAUTH_REDIRECT_URI e.g. https://orange.your-domain.com/oauth/callback
+# Required repo Secrets:
+#   OAUTH_CLIENT_ID    your own Cloudflare OAuth client ID (see SELF-BUILD.md)
+# Optional repo Variables:
+#   APP_GROUP_SUFFIX   defaults to the bundle prefix (group.<prefix>.Orange-Cloud)
+#
+# Run from the Actions tab (workflow_dispatch) or on every push to main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  build-ios:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Apply self-build identity (bundle IDs, team, app group, OAuth)
+        env:
+          BUNDLE_PREFIX: ${{ vars.BUNDLE_PREFIX }}
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          OAUTH_REDIRECT_URI: ${{ vars.OAUTH_REDIRECT_URI }}
+        run: |
+          set -euo pipefail
+          PBX='apps/ios/Orange Cloud/Orange Cloud.xcodeproj/project.pbxproj'
+          : "${BUNDLE_PREFIX:?BUNDLE_PREFIX variable is required}"
+          : "${OAUTH_CLIENT_ID:?OAUTH_CLIENT_ID secret is required}"
+          : "${OAUTH_REDIRECT_URI:?OAUTH_REDIRECT_URI variable is required}"
+          # Bundle IDs: jiamin.chen.orange-cloud.* -> <prefix>.orange-cloud.*
+          sed -i '' "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX" || sed -i "s/jiamin\.chen\.orange-cloud/${BUNDLE_PREFIX}.orange-cloud/g" "$PBX"
+          # App Group in every .entitlements file
+          find 'apps/ios' -name '*.entitlements' -print0 | while IFS= read -r -d '' f; do
+            sed -i '' "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f" || sed -i "s/group\.jiamin\.chen\.Orange-Cloud/group.${BUNDLE_PREFIX}.Orange-Cloud/g" "$f"
+          done
+          # OAuth client + redirect URI (official values are not for third-party builds)
+          CFG='apps/ios/Orange Cloud/Orange Cloud/Core/Auth/OAuthConfig.swift'
+          sed -i '' "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG" || sed -i "s|static let clientID = \".*\"|static let clientID = \"${OAUTH_CLIENT_ID}\"|" "$CFG"
+          sed -i '' "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG" || sed -i "s|static let redirectURI = \".*\"|static let redirectURI = \"${OAUTH_REDIRECT_URI}\"|" "$CFG"
+          grep -n "clientID\|redirectURI" "$CFG"
+
+      - name: Build & archive (unsigned, OPENSOURCE_UNLOCKED)
+        run: |
+          set -euo pipefail
+          xcodebuild -project 'apps/ios/Orange Cloud/Orange Cloud.xcodeproj' \
+            -scheme 'Orange Cloud' \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/OrangeCloud.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) OPENSOURCE_UNLOCKED' \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/OrangeCloud.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)
+          echo "App: $APP"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP" && zip -r OrangeCloud-unsigned.ipa Payload
+          ls -lh OrangeCloud-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrangeCloud-unsigned
+          path: ${{ runner.temp }}/OrangeCloud-unsigned.ipa
+          retention-days: 7

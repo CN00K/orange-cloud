@@ -1,0 +1,38 @@
+/**
+ * Minimal wrangler config for a SELF-BUILD OAuth callback relay.
+ *
+ * The official wrangler.jsonc carries the author's own resources (o-c.do
+ * routes, D1 IAP ledger, R2 cache bucket, email sending, Apple IAP keys,
+ * ranking crons) — none of that is needed for the callback relay itself.
+ * /oauth/callback only 302-redirects the authorization code + state to the
+ * iOS app's custom scheme (orangecloud://oauth/callback). It stores nothing.
+ *
+ * How to use:
+ *   1. Copy this file over apps/web/wrangler.jsonc
+ *   2. Change "name" and the "routes" pattern to your own domain
+ *   3. pnpm deploy   (from apps/web, logged in to your own Cloudflare account)
+ *   4. Register https://<your-domain>/oauth/callback as the redirect URI of
+ *      your own Cloudflare OAuth client, and put that client ID into
+ *      OAuthConfig.swift (or the OAUTH_CLIENT_ID repo secret for Actions).
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "orange-cloud-relay",
+	"main": "custom-worker.ts",
+	"compatibility_date": "2026-06-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".open-next/assets",
+		"html_handling": "none"
+	},
+	"routes": [
+		{
+			"pattern": "orange.example.com",
+			"custom_domain": true
+		}
+	]
+}
