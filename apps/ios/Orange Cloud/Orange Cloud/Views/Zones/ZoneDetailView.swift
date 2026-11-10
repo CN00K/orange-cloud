@@ -93,6 +93,15 @@ struct ZoneDetailView: View {
         }
     }
 
+    /// “操作失败”弹窗的展示状态：error 非空即展示，关闭时清空 error。
+    /// 单独抽出来，避免 body 里那条超长修饰链让 Swift 编译器类型检查超时。
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { actionsViewModel.error != nil },
+            set: { if !$0 { actionsViewModel.error = nil } }
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -687,10 +696,7 @@ struct ZoneDetailView: View {
         } message: {
             Text("当前授权未包含此操作所需权限（\(deniedScopeHint)）。点「一键重授权」补齐，无需退出登录。")
         }
-        .alert("操作失败", isPresented: .init(
-            get: { actionsViewModel.error != nil },
-            set: { if !$0 { actionsViewModel.error = nil } }
-        )) {
+        .alert("操作失败", isPresented: errorAlertBinding) {
             apiErrorDocButton(for: actionsViewModel.error)
             Button("好", role: .cancel) {}
         } message: {
