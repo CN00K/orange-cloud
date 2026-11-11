@@ -557,6 +557,18 @@ struct ZoneDetailView: View {
         .contentTransition(.symbolEffect(.replace))
     }
 
+    /// 右上角工具栏：只有一个“固定到首页”按钮（见 pinButton）。
+    /// 整个 toolbar 内容抽出来，避免 body 里那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:611 的 ToolbarItem 曾报此错；pinButton 已抽出仍不够）。
+    @ToolbarContentBuilder
+    private var pinToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            // 置顶以 PinnedResourceStore 为准（跨资源类型统一）；同时把旧的
+            // CachedZone.pinned 字段镜像写回，老数据/其它入口读它时不至于分裂。
+            pinButton
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -608,11 +620,7 @@ struct ZoneDetailView: View {
         .navigationTitle(zone.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                // 置顶以 PinnedResourceStore 为准（跨资源类型统一）；同时把旧的
-                // CachedZone.pinned 字段镜像写回，老数据/其它入口读它时不至于分裂。
-                pinButton
-            }
+            pinToolbar
         }
         .sensoryFeedback(.impact(weight: .light), trigger: zone.pinned)
         .sensoryFeedback(.success, trigger: actionsViewModel.didPurge)
