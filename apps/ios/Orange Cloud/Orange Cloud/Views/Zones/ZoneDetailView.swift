@@ -538,6 +538,25 @@ struct ZoneDetailView: View {
             .padding(.bottom, 8)
     }
 
+    /// 右上角“固定到首页”按钮：置顶以 PinnedResourceStore 为准，
+    /// 同时把旧的 CachedZone.pinned 字段镜像写回。
+    /// 单独抽出来，避免 body 里那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:592 的 ToolbarItem 曾报此错）。
+    private var pinButton: some View {
+        Button(isPinned ? String(localized: "取消固定") : String(localized: "固定到首页"),
+               systemImage: isPinned ? "pin.fill" : "pin") {
+            let nowPinned = pinnedStore.toggle(
+                PinnedResource(type: .zone, resourceId: zone.id),
+                accountId: zone.accountId
+            )
+            withAnimation(.smooth) {
+                zone.pinned = nowPinned
+            }
+            SafeCache.perform("pin 状态保存") { try modelContext.save() }
+        }
+        .contentTransition(.symbolEffect(.replace))
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -592,18 +611,7 @@ struct ZoneDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 // 置顶以 PinnedResourceStore 为准（跨资源类型统一）；同时把旧的
                 // CachedZone.pinned 字段镜像写回，老数据/其它入口读它时不至于分裂。
-                Button(isPinned ? String(localized: "取消固定") : String(localized: "固定到首页"),
-                       systemImage: isPinned ? "pin.fill" : "pin") {
-                    let nowPinned = pinnedStore.toggle(
-                        PinnedResource(type: .zone, resourceId: zone.id),
-                        accountId: zone.accountId
-                    )
-                    withAnimation(.smooth) {
-                        zone.pinned = nowPinned
-                    }
-                    SafeCache.perform("pin 状态保存") { try modelContext.save() }
-                }
-                .contentTransition(.symbolEffect(.replace))
+                pinButton
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: zone.pinned)
