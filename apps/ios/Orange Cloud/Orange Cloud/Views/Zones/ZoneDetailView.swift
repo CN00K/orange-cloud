@@ -569,7 +569,10 @@ struct ZoneDetailView: View {
         }
     }
 
-    var body: some View {
+    /// 页面主体内容：ScrollView + heroCard + 分析区 + 5 张卡。
+    /// 单独抽出来，body 那条超长修饰链让 Swift 编译器连 .background 都过不去
+    ///（ZoneDetailView.swift:619 的 .background 曾报此错）。
+    private var mainContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 heroCard
@@ -616,6 +619,28 @@ struct ZoneDetailView: View {
             }
             .padding()
         }
+    }
+
+    /// 待确认操作的执行按钮：按操作类型调对应的 set 方法。
+    /// 单独抽出来，body 里那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:619 的 .background 曾报此错）。
+    private func pendingActionButton(_ action: PendingZoneAction) -> some View {
+        Button(action.confirmLabel) {
+            Task {
+                switch action {
+                case .underAttack(let on): await actionsViewModel.setUnderAttack(on)
+                case .devMode(let on):     await actionsViewModel.setDevMode(on)
+                case .pause(let on):
+                    if await actionsViewModel.setPaused(on) {
+                        writeBackPaused(actionsViewModel.paused)
+                    }
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        mainContent
         .background { SkyBackground() }
         .navigationTitle(zone.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -677,18 +702,7 @@ struct ZoneDetailView: View {
             titleVisibility: .visible,
             presenting: pendingAction
         ) { action in
-            Button(action.confirmLabel) {
-                Task {
-                    switch action {
-                    case .underAttack(let on): await actionsViewModel.setUnderAttack(on)
-                    case .devMode(let on):     await actionsViewModel.setDevMode(on)
-                    case .pause(let on):
-                        if await actionsViewModel.setPaused(on) {
-                            writeBackPaused(actionsViewModel.paused)
-                        }
-                    }
-                }
-            }
+            pendingActionButton(action)
         } message: { action in
             Text(action.message(zoneName: zone.name))
         }
