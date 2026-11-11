@@ -639,7 +639,10 @@ struct ZoneDetailView: View {
         }
     }
 
-    var body: some View {
+    /// 主内容 + 背景/标题/工具栏/触感反馈：body 修饰链的第一段。
+    /// 单独抽出来，body 那条超长修饰链让 Swift 编译器类型检查超时
+    ///（ZoneDetailView.swift:648 的 pinToolbar 曾报此错）。
+    private var chromedContent: some View {
         mainContent
         .background { SkyBackground() }
         .navigationTitle(zone.name)
@@ -650,17 +653,57 @@ struct ZoneDetailView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: zone.pinned)
         .sensoryFeedback(.success, trigger: actionsViewModel.didPurge)
         .sensoryFeedback(.success, trigger: actionsViewModel.didInvalidate)
+    }
+
+    /// 入页加载：设置 + AI 设置 + 机器人配置 + 前置配置（按权限分批拉）。
+    private func loadInitialData() async {
+        if canReadSettings {
+            await actionsViewModel.loadSettings()
+            await actionsViewModel.loadAISettings()
+        }
+        if canReadBots {
+            await actionsViewModel.loadBotConfig()
+        }
+        if canReadPrecursor {
+            await actionsViewModel.loadPrecursor()
+        }
+    }
+
+    /// 下拉刷新：分析 + 设置 + 机器人 + 前置配置 + 暂停态校准。
+    private func refreshAll() async {
+        if auth.hasScope("analytics.read") {
+            await analyticsViewModel.refresh()
+            await trafficDetailsViewModel.refresh(range: analyticsViewModel.selectedRange)
+        }
+        if canReadSettings {
+            await actionsViewModel.loadSettings()
+            await actionsViewModel.loadAISettings()
+        }
+        if canReadBots {
+            await actionsViewModel.loadBotConfig()
+        }
+        if canReadPrecursor {
+            await actionsViewModel.loadPrecursor()
+        }
+        await syncPausedFromAPI()
+    }
+
+    /// 缓存清理表：按模式调对应的 purge 方法。
+    private var purgeSheet: some View {
+        PurgeCacheSheet(zoneName: zone.name) { mode, items, action in
+            switch mode {
+            case .url:    await actionsViewModel.purgeURLs(items, action: action)
+            case .prefix: await actionsViewModel.purgePrefixes(items, action: action)
+            case .host:   await actionsViewModel.purgeHosts(items, action: action)
+            case .tag:    await actionsViewModel.purgeTags(items, action: action)
+            }
+        }
+    }
+
+    var body: some View {
+        chromedContent
         .task {
-            if canReadSettings {
-                await actionsViewModel.loadSettings()
-                await actionsViewModel.loadAISettings()
-            }
-            if canReadBots {
-                await actionsViewModel.loadBotConfig()
-            }
-            if canReadPrecursor {
-                await actionsViewModel.loadPrecursor()
-            }
+            await loadInitialData()
         }
         .task {
             // 暂停态只需 zone.read（登录必备），与上面的 settings 权限无关：
@@ -677,21 +720,7 @@ struct ZoneDetailView: View {
             }
         }
         .refreshable {
-            if auth.hasScope("analytics.read") {
-                await analyticsViewModel.refresh()
-                await trafficDetailsViewModel.refresh(range: analyticsViewModel.selectedRange)
-            }
-            if canReadSettings {
-                await actionsViewModel.loadSettings()
-                await actionsViewModel.loadAISettings()
-            }
-            if canReadBots {
-                await actionsViewModel.loadBotConfig()
-            }
-            if canReadPrecursor {
-                await actionsViewModel.loadPrecursor()
-            }
-            await syncPausedFromAPI()
+            await refreshAll()
         }
         .confirmationDialog(
             pendingAction?.title ?? "",
@@ -731,16 +760,7 @@ struct ZoneDetailView: View {
         } message: {
             Text("保留缓存但标记为过期，下次请求时向源站校验；内容没变（304）就继续用缓存。需要源站返回 ETag 或 Last-Modified。")
         }
-        .sheet(isPresented: $showPurgeSheet) {
-            PurgeCacheSheet(zoneName: zone.name) { mode, items, action in
-                switch mode {
-                case .url:    await actionsViewModel.purgeURLs(items, action: action)
-                case .prefix: await actionsViewModel.purgePrefixes(items, action: action)
-                case .host:   await actionsViewModel.purgeHosts(items, action: action)
-                case .tag:    await actionsViewModel.purgeTags(items, action: action)
-                }
-            }
-        }
+        .sheet(isPresented: $showPurgeSheet) { purgeSheet }
         .onChange(of: actionsViewModel.didPurge) {
             showPurgeDone = true
         }
